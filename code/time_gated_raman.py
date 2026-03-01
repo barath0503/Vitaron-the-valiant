@@ -24,7 +24,7 @@ from scipy.sparse import csc_matrix
 
 
 # =============================================================================
-# PATH RESOLUTION (NEW)
+# PATH RESOLUTION 
 # =============================================================================
 
 def resolve_csv_path(filename: str) -> str:
