@@ -85,11 +85,14 @@ def load_raman_csv(filename: str) -> RamanSpectrum:
 
     shift = df["raman_shift_cm^-1"].to_numpy()
     intensity = df["intensity_raw"].to_numpy()
+    metadata: Dict = {"source": "csv", "path": csv_path}
+    if "true_glucose_mg_dl" in df.columns:
+        metadata["true_glucose_mg_dl"] = float(df["true_glucose_mg_dl"].iloc[0])
 
     return RamanSpectrum(
         shift=shift,
         intensity=intensity,
-        metadata={"source": "csv", "path": csv_path},
+        metadata=metadata,
     )
 
 
@@ -257,16 +260,23 @@ def extract_glucose_features(spec: RamanSpectrum, debug_info=None):
 # MAIN PIPELINE ENTRY
 # =============================================================================
 
-def raman_pipeline_from_csv(filename: str):
+def raman_pipeline_from_csv(
+    filename: str,
+    seed: int = 42,
+    n_frames: int = 8,
+    noise_scale: float = 0.01,
+):
 
     base_spec = load_raman_csv(filename)
+    rng = np.random.default_rng(seed)
 
     raw_frames = [
         RamanSpectrum(
             base_spec.shift,
-            base_spec.intensity + np.random.normal(0, 0.01, size=base_spec.intensity.shape),
+            base_spec.intensity + rng.normal(0.0, noise_scale, size=base_spec.intensity.shape),
+            metadata=base_spec.metadata,
         )
-        for _ in range(8)
+        for _ in range(n_frames)
     ]
 
     processed = []

@@ -67,14 +67,21 @@ def load_nir_csv(filename: str) -> NIRSignal:
     csv_path = resolve_csv_path(filename)
     df = pd.read_csv(csv_path)
 
-    voltages = df[
-        ["voltage_750", "voltage_810", "voltage_940", "voltage_1600"]
-    ].to_numpy()[0]
+    voltage_cols = ["voltage_750", "voltage_810", "voltage_940", "voltage_1600"]
+    voltages = df[voltage_cols].to_numpy(dtype=float)
+    if voltages.ndim == 2 and voltages.shape[0] > 1:
+        voltages = np.mean(voltages, axis=0)
+    else:
+        voltages = voltages[0]
+
+    metadata: Dict = {"source": "csv", "path": csv_path}
+    if "true_glucose_mg_dl" in df.columns:
+        metadata["true_glucose_mg_dl"] = float(df["true_glucose_mg_dl"].iloc[0])
 
     return NIRSignal(
         voltages=voltages,
         wavelengths_nm=np.array([750, 810, 940, 1600]),
-        metadata={"source": "csv", "path": csv_path}
+        metadata=metadata,
     )
 
 
@@ -168,27 +175,36 @@ def extract_nir_features(signal: NIRSignal, debug_info: Dict | None = None) -> N
 def simulate_multi_frame_from_single(
     spec: NIRSignal,
     n_frames: int = 10,
-    noise_scale: float = 0.015
+    noise_scale: float = 0.015,
+    rng: np.random.Generator | None = None,
 ) -> List[NIRSignal]:
 
+    rng = rng or np.random.default_rng(42)
     frames = []
     for _ in range(n_frames):
-        noisy_voltages = spec.voltages + np.random.normal(
+        noisy_voltages = spec.voltages + rng.normal(
             0.0, noise_scale, size=spec.voltages.shape
         )
-        frames.append(NIRSignal(np.clip(noisy_voltages, 0.1, 4.0), spec.wavelengths_nm))
+        frames.append(
+            NIRSignal(
+                np.clip(noisy_voltages, 0.1, 4.0),
+                spec.wavelengths_nm,
+                spec.metadata,
+            )
+        )
 
     return frames
 
 
-def nir_pipeline_from_csv(filename: str) -> NIRFeatures:
+def nir_pipeline_from_csv(filename: str, seed: int = 42) -> NIRFeatures:
 
     base_spec = load_nir_csv(filename)
+    rng = np.random.default_rng(seed)
 
     dark_current = np.array([0.02, 0.02, 0.01, 0.03])
     water_reference = np.array([0.15, 0.22, 0.45, 0.88])
 
-    raw_frames = simulate_multi_frame_from_single(base_spec, n_frames=10)
+    raw_frames = simulate_multi_frame_from_single(base_spec, n_frames=10, rng=rng)
 
     preprocessed_frames = []
     for f in raw_frames:

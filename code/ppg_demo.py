@@ -15,46 +15,46 @@ import numpy as np
 # CONFIGURATION
 # =============================================================================
 
-TRUE_GLUCOSE = 115.0  # mg/dL (Demo ground truth)
+TRUE_GLUCOSE = 150.0  # mg/dL (Demo ground truth)
 
 
 # =============================================================================
 # SENSOR RAW SIMULATION
 # =============================================================================
 
-def get_nir_raw_stream(motion_level: float) -> np.ndarray:
+def get_nir_raw_stream(motion_level: float, rng) -> np.ndarray:
     """
     Simulates 4-wavelength NIR voltages.
     Motion introduces lift artifact + noise.
     """
     base_voltages = np.array([3.42, 3.15, 2.88, 1.25])
 
-    noise_amp = motion_level / 20.0
-    noise = np.random.normal(0, noise_amp, 4)
+    noise_amp = 0.01 + motion_level / 10.0
+    noise = rng.normal(0, noise_amp, 4)
 
     lift = 0.0
-    if motion_level > 5:
-        lift = np.random.uniform(0.1, 0.5)
+    if motion_level > 3:
+        lift = rng.uniform(0.05, 0.55) * (motion_level / 10.0)
 
     return base_voltages - lift + noise
 
 
-def get_raman_raw_features(motion_level: float) -> np.ndarray:
+def get_raman_raw_features(motion_level: float, rng) -> np.ndarray:
     """
     Simulates Raman peak intensities (1125, 1340, 1460).
     Motion reduces signal strength + increases noise.
     """
     base_peaks = np.array([0.915, 0.726, 0.537])
 
-    attenuation = 1.0 - (motion_level / 15.0)
+    attenuation = 1.0 - (motion_level / 9.5)
     attenuation = max(attenuation, 0.1)
 
-    noise = np.random.normal(0, 0.02 * motion_level, 3)
+    noise = rng.normal(0, 0.03 * motion_level, 3)
 
     return (base_peaks * attenuation) + noise
 
 
-def get_ppg_perfusion_index(motion_level: float) -> float:
+def get_ppg_perfusion_index(motion_level: float, rng) -> float:
     """
     Simulates PPG perfusion index (PI).
     Motion creates false spikes or dropouts.
@@ -62,10 +62,11 @@ def get_ppg_perfusion_index(motion_level: float) -> float:
     true_pi = 1.2
 
     if motion_level > 3:
-        artifact = np.random.uniform(-0.5, 0.5) * (motion_level / 5.0)
-        return max(0.1, true_pi + artifact)
+        base_drop = true_pi - 0.12 * (motion_level - 3.0)
+        artifact = rng.uniform(-0.6, 0.4) * (motion_level / 5.0)
+        return max(0.1, base_drop + artifact)
 
-    return true_pi + np.random.normal(0, 0.05)
+    return true_pi + rng.normal(0, 0.05)
 
 
 # =============================================================================
@@ -104,16 +105,18 @@ def process_raman_vector(raw_peaks: np.ndarray, ppg_pi: float):
 # ACQUISITION ENTRY POINT (USED BY FUSION ENGINE)
 # =============================================================================
 
-def acquire_and_process_once(motion_level: float):
+def acquire_and_process_once(motion_level: float, seed: int | None = 42):
     """
     Main entry point for fusion layer.
     Returns normalized vectors + SQI.
     """
 
+    rng = np.random.default_rng(seed) if seed is not None else np.random
+
     # --- RAW ---
-    nir_raw = get_nir_raw_stream(motion_level)
-    raman_raw = get_raman_raw_features(motion_level)
-    perfusion_index = get_ppg_perfusion_index(motion_level)
+    nir_raw = get_nir_raw_stream(motion_level, rng)
+    raman_raw = get_raman_raw_features(motion_level, rng)
+    perfusion_index = get_ppg_perfusion_index(motion_level, rng)
 
     # --- PROCESS ---
     nir_vec_norm, nir_correction = process_nir_vector(nir_raw)
